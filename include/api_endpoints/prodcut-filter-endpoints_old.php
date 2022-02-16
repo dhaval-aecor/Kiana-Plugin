@@ -28,8 +28,8 @@ function wp_rest_filterproducts_endpoint_handler($request = null) {
     $tags = $params['tags'];
 
     $filters  = $params['filter'];
-    $per_page = (isset($params['per_page']) && $params['per_page']>0) ? $params['per_page'] : 10;
-    $page   = (isset($params['page']) && $params['page']>0) ? $params['page'] : 1;
+    $per_page = $params['per_page'];
+    $page   = $params['page'];
     $order    = $params['order'];
     $orderby  = $params['orderby'];
     $featured = $params['featured'];
@@ -46,6 +46,16 @@ function wp_rest_filterproducts_endpoint_handler($request = null) {
     if(isset($params['search'])){
       $args['s'] = $search_term;
     }
+    
+    // Posts per page.
+    if ( ! empty( $per_page ) ) {
+      $args['posts_per_page'] = $per_page;
+    }
+
+    // Pagination, starts from 1.
+    if ( ! empty( $page ) ) {
+      $args['paged'] = $page;
+    }
 
     // Order condition. ASC/DESC.
     if ( ! empty( $order ) ) {
@@ -57,17 +67,15 @@ function wp_rest_filterproducts_endpoint_handler($request = null) {
       if ( $orderby === 'price' ) {
         $args['orderby'] = 'meta_value_num';
         $args['meta_key']  = '_price';
-      } elseif($orderby === 'popularity') {
-        $args['orderby'] = 'meta_value_num';
-        $args['meta_key']  = 'total_sales';
-      } elseif($orderby === 'rating') {
-        $args['orderby'] = 'meta_value_num';
-        $args['meta_key']  = '_wc_average_rating';
       } else {
         $args['orderby'] = $orderby;
       }
     }
-     
+     // $q->set( 'meta_key', '_stock_status' );
+//         $q->set( 'orderby',  'meta_value'    );
+//         $q->set( 'order',    'ASC'           );
+    // $args['orderby'] = 'meta_value';
+    // $args['meta_key']  = '_stock_status';
     
         // If filter buy category or attributes.
     if ( ! empty( $category ) || ! empty( $filters ) || ! empty( $tags ) ) {
@@ -139,7 +147,12 @@ function wp_rest_filterproducts_endpoint_handler($request = null) {
           ];
       }
     }
-    
+    // $args['tax_query'][] = [
+    //     'taxonomy' => 'product_visibility',
+    //     'field'    => 'name',
+    //     'terms'    => array('outofstock'),
+    //     'operator' => 'NOT IN',
+    //   ];
     if(isset($params['type']))
     {
       $args['tax_query'][] = [
@@ -158,47 +171,17 @@ function wp_rest_filterproducts_endpoint_handler($request = null) {
         'value' => $params['sku']
       ];
     }
-    $args1 = $args; 
-    $args1['tax_query'][] = [
-        'taxonomy' => 'product_visibility',
-        'field'    => 'name',
-        'terms'    => array('outofstock'),
-        'operator' => 'NOT IN',
-      ];
-      // Posts per page.
-    if ( ! empty( $per_page ) ) {
-      $args1['posts_per_page'] = $per_page;
-    }
-
-    // Pagination, starts from 1.
-    if ( ! empty( $page ) ) {
-      $args1['paged'] = $page;
-    }
-
-    $args3 = $args; 
-    $args3['tax_query'][] = [
-        'taxonomy' => 'product_visibility',
-        'field'    => 'name',
-        'terms'    => array('outofstock'),
-        'operator' => 'NOT IN',
-      ];
-    $args3['paged'] = 1;
-    $args3['posts_per_page'] = $per_page;
-    $the_query3 = new \WP_Query( $args3 );
-    wp_reset_postdata();
-    
-    $the_query = new \WP_Query( $args1 );
-
+    $the_query = new \WP_Query( $args );
+    // print_r(wc_get_min_max_price_meta_query($args));
+      // print_r($args);
+      // die();
+    // print_r($the_query);
     $filter_price = get_filtered_price_custom($args);
 
-    // if ( ! $the_query->have_posts() ) {
-    //   return $output;
-    // }
-    // print_r(count($the_query->posts));
-    $per_page_count = count($the_query->posts);
-    $q1_last_page = $the_query3->max_num_pages;
-    $q1_total_item = $the_query3->found_posts;
-
+    if ( ! $the_query->have_posts() ) {
+      return $output;
+    }
+                        
     while ( $the_query->have_posts() ) {
         $the_query->the_post();
         $product = wc_get_product( get_the_ID() );  
@@ -327,8 +310,8 @@ function wp_rest_filterproducts_endpoint_handler($request = null) {
         $wcproduct['on_sale'] = $on_sale;
         $wcproduct['price_befor_sale'] = $befor_sale;
         $wcproduct['price_after_sale'] = $after_sale;
-        $sale_per = round(($befor_sale-$lowest_sale_price)*100/$befor_sale);
-        $wcproduct['sale_percentage'] = $sale_per;
+        $sale_per = ceil(($befor_sale-$lowest_sale_price)*100/$befor_sale);
+        $wcproduct['sale_percentage '] = $sale_per;
         $wcproduct['variation_detail'] = $var_data;
         if ( has_term( 'new-arrivals', 'product_tag', $product->get_id() ) ) {
             $wcproduct['is_new'] = true;
@@ -373,255 +356,20 @@ function wp_rest_filterproducts_endpoint_handler($request = null) {
                     
         $items[] = $wcproduct;
     }
-
-    wp_reset_postdata();
-
-    $args2 = $args; 
-    $args2['tax_query'][] = [
-        'taxonomy' => 'product_visibility',
-        'field'    => 'name',
-        'terms'    => array('outofstock'),
-        'operator' => 'IN',
-      ];
-      // Posts per page.
-    if ( ! empty( $per_page ) ) {
-      $args2['posts_per_page'] = -1;
-    }
-    // print_r($page);
-    // print_r($q1_last_page);
-    if ( ! empty( $page ) ) {
-      $args2['paged'] = 1;
-    }
-    if($page>=$q1_last_page)
-    {
-      if($page==$q1_last_page)
-      {
-        // print_r("Last Page");
-        $remain_count = $per_page - $per_page_count;
-        if($remain_count>0){
-          $args2['posts_per_page'] = $remain_count;
-        } else {
-          $args2['posts_per_page'] = 0;
-        }
-      } elseif ($page>$q1_last_page) {
-        $last_page_amo=floor($q1_total_item/$q1_last_page);
-        $remain_count = $per_page-$last_page_amo;
-        $page_gap = $page-$q1_last_page;
-        if($page_gap==1){
-          $offset = $remain_count;
-        } else {
-          $offset = ($page_gap-1)*$per_page+$remain_count;
-        }
-        // print_r($offset);
-        $args2['offset'] = $offset; 
-        $args2['posts_per_page'] = $per_page;
-      }
-    }
-
-    $the_query2 = new \WP_Query( $args2 );
-    if($page>=$q1_last_page)
-    {
-        while ( $the_query2->have_posts() ) {
-            $the_query2->the_post();
-            $product = wc_get_product( get_the_ID() );  
-            $wcproduct = array();
-            $on_sale = false;
-            $in_wishlist = false;
-            $data = $product->get_data();
-            $prod = get_post( $product->get_id() );
-            $image_ids=array();
-            $image_ids[] = $product->get_image_id();
-            $gallery = $product->get_gallery_image_ids();
-            $imag = array();
-            $images_list = array();
-    
-            foreach ($gallery as $key => $img) {
-              array_push($image_ids, $img);
-            }
-            // print_r($product->get_sale_price());
-            if($product->get_sale_price()){
-              $on_sale = true;
-              $befor_sale = $product->get_regular_price();
-              $after_sale = $product->get_sale_price();
-            }
-            foreach ($image_ids as $key => $image) {
-              $img = get_post($image);
-              $imag = array(
-                "id" => $img->ID,
-                    "date_created" => date('Y-m-d\TH:i:s',strtotime($img->post_date)),
-                    "date_created_gmt" => date('Y-m-d\TH:i:s',strtotime($img->post_date_gmt)),
-                    "date_modified" => date('Y-m-d\TH:i:s',strtotime($img->post_modified)),
-                    "date_modified_gmt" => date('Y-m-d\TH:i:s',strtotime($img->post_modified_gmt)),
-                    "src" => $img->guid,
-                    "name" => $img->post_title,
-                    "alt" => $img->post_title
-              );
-              array_push($images_list, $imag);
-            }
-            $categories = get_the_terms( $product->get_id(), 'product_cat' );
-            $prod_cats = array();
-            foreach ($categories as $cat) {
-                $prod_cat = array(
-                  "id" => $cat->term_id,
-                  "name" => $cat->name,
-                  "slug" => $cat->slug,
-                  "parent" => $cat->parent,
-                  "description" => $cat->description,
-                  "display" => $cat->display,
-                  "menu_order" => $cat->menu_order,
-                  "count" => $cat->count,
-                );
-                array_push($prod_cats, $prod_cat);
-            }
-            
-            $wcproduct['id'] = $product->get_id();
-            $wcproduct['name'] = $product->get_name();
-            $wcproduct['slug'] = $product->get_slug();
-            $wcproduct['permalink'] = get_permalink( $product->get_id() );
-            $wcproduct['date_created'] = date('Y-m-d\TH:i:s',strtotime($prod->post_date));
-            $wcproduct['date_created_gmt'] = date('Y-m-d\TH:i:s',strtotime($prod->post_date_gmt));
-            $wcproduct['date_modified'] = date('Y-m-d\TH:i:s',strtotime($prod->post_modified));
-            $wcproduct['date_modified_gmt'] = date('Y-m-d\TH:i:s',strtotime($prod->post_modified_gmt));
-            $wcproduct['type'] = $product->get_type();
-            $wcproduct['status'] = $product->get_status();
-            $wcproduct['featured'] = $product->get_featured();
-            $wcproduct['description'] = $product->get_description();
-            $wcproduct['category'] = $prod_cats;
-            $wcproduct['short_description'] = $product->get_short_description();
-            $wcproduct['sku'] = $product->get_sku();
-            $wcproduct['price'] = $product->get_price();
-            $wcproduct['regular_price'] = $product->get_regular_price();
-            $wcproduct['sale_price'] = $product->get_sale_price();
-            $wcproduct['total_sales'] = $product->get_total_sales();
-            $wcproduct['stock_status'] = $product->get_stock_status();
-    
-            $product_variation = $product->get_children();
-            $var_data = array();
-            $lowest_sale_price = (int)$product->get_regular_price();
-            foreach ($product_variation as $key => $var_id) {
-              $variation = wc_get_product( $var_id );
-              $attributes = array();
-              foreach ($variation->get_attributes() as $key => $at) {
-                $attribute = array(
-                  'name' => wc_attribute_label($key),
-                  'value' => $at
-                );
-              }
-              if($on_sale==false){
-                if($variation->get_sale_price())
-                {
-                  $on_sale = true;
-                  $befor_sale = $variation->get_regular_price();
-                  $after_sale = $variation->get_sale_price();
-                } else {
-                  $on_sale = false;
-                  $befor_sale = $variation->get_regular_price();
-                  $after_sale = $variation->get_sale_price();
-                }
-              }
-              if($lowest_sale_price==0)
-              {
-                if($on_sale==true)
-                {
-                  $lowest_sale_price = $variation->get_sale_price();
-                } else {
-                  $lowest_sale_price = $variation->get_price();
-                }
-              } else {
-                if($variation->get_sale_price()) {
-                  if((int)$variation->get_sale_price()<$lowest_sale_price){
-                    $lowest_sale_price = (int)$variation->get_sale_price();
-                  }
-                }
-              }
-    
-              $var = array(
-                'id' => $var_id,
-                'name' => $variation->get_name(),
-                'sku' => $variation->get_sku(),
-                'attributes' => $attribute,
-                'price'=> $variation->get_price(),
-                'regular_price'=> $variation->get_regular_price(),
-                'sale_price'=> $variation->get_sale_price(),
-              );
-              array_push($var_data, $var);
-            }
-            $wcproduct['on_sale'] = $on_sale;
-            $wcproduct['price_befor_sale'] = $befor_sale;
-            $wcproduct['price_after_sale'] = $after_sale;
-            $sale_per = ceil(($befor_sale-$lowest_sale_price)*100/$befor_sale);
-            $wcproduct['sale_percentage '] = $sale_per;
-            $wcproduct['variation_detail'] = $var_data;
-            if ( has_term( 'new-arrivals', 'product_tag', $product->get_id() ) ) {
-                $wcproduct['is_new'] = true;
-            } else {
-              $wcproduct['is_new'] = false;
-            }
-            $wcproduct['size_chart'] = 'https://www.kianafashion.com/wp-content/uploads/2020/10/New-Size-Chart.jpg';
-            
-    
-            $in_wishlist = is_in_array($product->get_id(),$wl_items,'prod_id');
-    
-            $wl_items_id = null;
-            if($in_wishlist!==false){
-              $key = array_search($product->get_id(),array_column($wl_items,'prod_id'));
-              $item_id = $wl_items[$key]['ID'];
-              $wl_item_id = $item_id;
-            }
-            if($in_wishlist===false){
-              $post_child = $product->get_children();
-              foreach ($post_child as $key => $child_id) {
-                $in_wishlist = is_in_array($child_id,$wl_items,'prod_id');
-                if ($in_wishlist) {
-                  // var_dump($in_wishlist);
-                    $key = array_search($child_id,array_column($wl_items,'prod_id'));
-                    $item_id = $wl_items[$key]['ID'];
-                    $wl_item_id = $item_id;
-                    break;
-                }
-              }
-            }
-            if($in_wishlist===true)
-            {
-              $wcproduct["in_wishlist"] = true;
-              $wcproduct["wishlist_id"] = $wl_list['ID'];
-              $wcproduct["wl_item_id"] = $wl_item_id;
-            } else {
-              $wcproduct["in_wishlist"] = false;
-            }
-    
-    
-            $wcproduct['images'] = $images_list;
-                        
-            $items[] = $wcproduct;
-        }
-        wp_reset_postdata();
-    }
-
-    if ( !$the_query->have_posts() && !$the_query2->have_posts() ) {
-      return $output;
-    }
-
-    $total_item = $the_query2->found_posts+$the_query3->found_posts;
-    // $per_page
-    $total_pages = ceil($total_item/$per_page);
-    
-
     $output['page_meta'] = array(
-      'per_page' => $per_page,
-      'total_items' => $total_item,
-      'total_pages' => $total_pages,
-      'current_page' => $page,
-      'last_page' => $total_pages,
+      'per_page' => $the_query->query['posts_per_page'],
+      'total_items' => $the_query->found_posts,
+      'total_pages' => $the_query->max_num_pages,
+      'current_page' => $the_query->query['paged'],
+      'last_page' => $the_query->max_num_pages,
       'first_page' => 1,
     );
-    
-    $output['filters']['price_range'] = array(
+    /*$output['price_range'] = array(
       'min_price' => $filter_price->min_price,
       'max_price' => $filter_price->max_price,
-    );
-    
+    );*/
     $output['items'] = $items;
+    wp_reset_postdata();
 
     return new WP_REST_Response($output, 200);
 }

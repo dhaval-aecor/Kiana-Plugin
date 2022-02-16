@@ -1,0 +1,232 @@
+<?php
+// ini_set('display_errors', 1);
+// ini_set('display_startup_errors', 1);
+// error_reporting(E_ALL);
+function add_to_wishlist($request)
+{
+	global $wpdb;
+	// include_once( ABSPATH . "wp-content/plugins/woocommerce/includes/class-wc-data-store.php");
+	// include_once( ABSPATH . "wp-content/plugins/yith-woocommerce-wishlist/includes/class.yith-wcwl.php");
+
+	$defaults = array(
+		'add_to_wishlist'     => 0,
+		'wishlist_id'         => 0,
+		'quantity'            => 1,
+		'user_id'             => false,
+		'dateadded'           => '',
+		'wishlist_name'       => '',
+		'wishlist_visibility' => 0,
+	);
+	$params = $request->get_params();
+
+	$atts = wp_parse_args( $atts, $params );
+	$atts = wp_parse_args( $atts, $defaults );
+	$user_id = $params['user_id'];
+	$wl_list = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}yith_wcwl_lists WHERE user_id=".$user_id,ARRAY_A);
+
+	if(!empty($wl_list)){
+		$atts['wishlist_id'] = $wl_list['ID'];
+	}
+
+	$prod_id     = apply_filters( 'yith_wcwl_adding_to_wishlist_prod_id', intval( $atts['add_to_wishlist'] ) );
+	$wishlist_id = apply_filters( 'yith_wcwl_adding_to_wishlist_wishlist_id', $atts['wishlist_id'] );
+	$quantity    = apply_filters( 'yith_wcwl_adding_to_wishlist_quantity', intval( $atts['quantity'] ) );
+	$user_id     = apply_filters( 'yith_wcwl_adding_to_wishlist_user_id', intval( $atts['user_id'] ) );
+	$dateadded   = apply_filters( 'yith_wcwl_adding_to_wishlist_dateadded', $atts['dateadded'] );
+	do_action( 'yith_wcwl_adding_to_wishlist', $prod_id, $wishlist_id, $user_id );
+
+	if($wishlist_id == 0) {
+		
+		$wishlist =  YITH_WCWL_Wishlist_Factory::get_wishlist( $wishlist_id, 'edit' );
+		$token = $wishlist->get_token();
+
+		$wpdb->update( "{$wpdb->prefix}yith_wcwl_lists", 
+			array( 
+				'user_id' => $user_id,
+				'session_id' => NULL,
+				'expiration' => NULL,
+			),
+			array(
+				'wishlist_token'=>$token
+			)
+		);
+
+		$new_wl = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}yith_wcwl_lists WHERE wishlist_token=".$token,ARRAY_A);
+
+		$wishlist =  YITH_WCWL_Wishlist_Factory::get_wishlist( $new_wl['ID'], 'edit' );
+
+	} else {
+		$wishlist =  YITH_WCWL_Wishlist_Factory::get_wishlist( $wishlist_id, 'edit' );
+	}
+
+	if(!empty($wishlist)){
+		$item = new YITH_WCWL_Wishlist_Item();
+
+		$item->set_product_id( $prod_id );
+		$item->set_quantity( $quantity );
+		$item->set_wishlist_id( $wishlist->get_id() );
+		$item->set_user_id( $wishlist->get_user_id() );
+
+		if ( $dateadded ) {
+			$item->set_date_added( $dateadded );
+		}
+
+		$wishlist->add_item( $item );
+		$wishlist->save();
+
+		wp_cache_delete( 'wishlist-count-' . $wishlist->get_token(), 'wishlists' );
+
+		$user_id = $wishlist->get_user_id();
+
+		if ( $user_id ) {
+			wp_cache_delete( 'wishlist-user-total-count-' . $user_id, 'wishlists' );
+		}
+		
+		do_action( 'yith_wcwl_added_to_wishlist', $prod_id, $item->get_wishlist_id(), $item->get_user_id() );
+
+		$data= array(
+			'status' => 200,
+			'message' => "Product Added to wishlist",
+		);
+		$response = new WP_REST_Response( $data );
+		$response->set_status( 200 );
+		return $response;
+	}
+}
+
+function list_wishlist($request)
+{
+	global $wpdb;
+	$params = $request->get_params();
+	$user_id = $params['user_id'];
+	$per_page = (isset($params['per_page'])) ? $params['per_page'] : 5;
+	$page = (isset($params['page'])) ? $params['page'] : 1;
+	$offset = $per_page*($page-1);
+	// yith_wcwl
+	// print_r($wpdb->get_results("SELECT * FROM {$wpdb->prefix}yith_wcwl_lists"));
+	$wishlist = array();
+	$items = array();
+	$wl_list = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}yith_wcwl_lists WHERE user_id=".$user_id,ARRAY_A);
+	
+
+	$total_items = $wpdb->get_var("SELECT COUNT(prod_id) FROM {$wpdb->prefix}yith_wcwl WHERE wishlist_id=".$wl_list['ID']);
+	$last_page = ceil($total_items/$per_page);
+	
+	if(1 == $last_page)
+	{
+		$condition = "";
+	} else {
+		$condition = " LIMIT $offset,$per_page";
+	}
+
+	
+	$wl_items = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}yith_wcwl WHERE wishlist_id=".$wl_list['ID']."$condition",ARRAY_A);
+	
+	$pagination = array(
+		'per_page' => (int)$per_page,
+		'total_items' => (int)$total_items,
+		'total_pages' => (int)$last_page,
+		'current_page' => (int)$page,
+		'last_page' => (int)$last_page,
+		'first_page' => 1,
+	);
+
+	foreach ($wl_items as $key => $wl_it) {
+		$product = wc_get_product( $wl_it['prod_id'] );
+		$image_url = wp_get_attachment_url($product->get_image_id());
+		if(!$image_url){
+			$image_url = wc_placeholder_img_src();
+		}
+		$attributes = array();
+		// print_r($product->get_attributes());
+		foreach ($product->get_attributes() as $key => $at) {
+			$attribute = array(
+				'name' => wc_attribute_label($key),
+				'value' => $at
+			);
+			array_push($attributes, $attribute);
+		}
+			// print_r(wc_attribute_label($key));
+		// print_r($product->get_tag_ids());
+		
+		// die();
+		$item = array(
+			'ID' => $wl_it['ID'],
+            'prod_id' => $wl_it['prod_id'],
+            'name' => $product->get_name(),
+            'slug' => $product->get_slug(),
+            'type' => $product->get_type(),
+            'sku' => $product->get_sku(),
+            'price' => $product->get_price(),
+            'regular_price' => $product->get_regular_price(),
+        	'sale_price' => $product->get_sale_price(),
+        	'attributes' => $attributes,
+        	'image' => $image_url,
+        	'stock_status' => $product->get_stock_status(),
+        	'stock_quantity' => '',
+            'quantity' => $wl_it['quantity'],
+            'user_id' => $wl_it['user_id'],
+            'wishlist_id' => $wl_it['wishlist_id'],
+            'position' => $wl_it['position'],
+            'original_price' => $wl_it['original_price'],
+            'original_currency' => $wl_it['original_currency'],
+            'dateadded' => $wl_it['dateadded'],
+		);
+		array_push($items, $item);
+	}
+	if(!empty($items)){
+		$wishlist = array(
+			'wl_id' => $wl_list['ID'],
+			'user_id' => $wl_list['user_id'],
+			'wl_token' => $wl_list['wishlist_token'],
+			'page_meta' => $pagination,
+			'items' => $items,
+		);
+	}
+
+	if(!empty($wishlist)){
+		$response = new WP_REST_Response( $wishlist );
+		$response->set_status( 200 );
+		return $response;
+	} else {
+		$data= array(
+			'status' => 422,
+			'cart' => "Wishlist Is empty",
+		);
+		$response = new WP_REST_Response( $data );
+		$response->set_status( 422 );
+		return $response;
+	}
+}
+
+function wishlist_delete_item($request)
+{
+	global $wpdb;
+	$params = $request->get_params();
+	$user_id = $params['user_id'];
+	$wl_id = $params['wishlist_id'];
+	$item_id = $params['item_id'];
+
+	$wl_items = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}yith_wcwl WHERE wishlist_id=".$wl_id,ARRAY_A);
+
+	$is_in_array = array_search($item_id, array_column($wl_items, 'ID'));
+	
+	if($is_in_array !== false){
+		$wpdb->delete( "{$wpdb->prefix}yith_wcwl" , array( 'ID' => $item_id ) );
+		$data= array(
+			'status' => 200,
+			'cart' => "Item Removed From Wishlist",
+		);
+		$response = new WP_REST_Response( $data );
+		$response->set_status( 200 );
+		return $response;
+	} else {
+		$data= array(
+			'status' => 422,
+			'cart' => "Selected Item is not exits in wishlist",
+		);
+		$response = new WP_REST_Response( $data );
+		$response->set_status( 422 );
+		return $response;
+	}
+}

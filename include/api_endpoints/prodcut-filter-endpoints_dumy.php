@@ -2,7 +2,7 @@
 // ini_set('display_errors', 1);
 // ini_set('display_startup_errors', 1);
 // error_reporting(E_ALL);
-function wp_rest_filterproducts_endpoint_handler($request = null) {
+function wp_rest_filterproducts_endpoint_handler_dumy($request = null) {
     global $wpdb;
     $header = $request->get_headers();
     
@@ -28,7 +28,7 @@ function wp_rest_filterproducts_endpoint_handler($request = null) {
     $tags = $params['tags'];
 
     $filters  = $params['filter'];
-    $per_page = (isset($params['per_page']) && $params['per_page']>0) ? $params['per_page'] : 10;
+    $per_page = $params['per_page'];
     $page   = (isset($params['page']) && $params['page']>0) ? $params['page'] : 1;
     $order    = $params['order'];
     $orderby  = $params['orderby'];
@@ -57,12 +57,6 @@ function wp_rest_filterproducts_endpoint_handler($request = null) {
       if ( $orderby === 'price' ) {
         $args['orderby'] = 'meta_value_num';
         $args['meta_key']  = '_price';
-      } elseif($orderby === 'popularity') {
-        $args['orderby'] = 'meta_value_num';
-        $args['meta_key']  = 'total_sales';
-      } elseif($orderby === 'rating') {
-        $args['orderby'] = 'meta_value_num';
-        $args['meta_key']  = '_wc_average_rating';
       } else {
         $args['orderby'] = $orderby;
       }
@@ -188,7 +182,6 @@ function wp_rest_filterproducts_endpoint_handler($request = null) {
     wp_reset_postdata();
     
     $the_query = new \WP_Query( $args1 );
-
     $filter_price = get_filtered_price_custom($args);
 
     // if ( ! $the_query->have_posts() ) {
@@ -327,8 +320,8 @@ function wp_rest_filterproducts_endpoint_handler($request = null) {
         $wcproduct['on_sale'] = $on_sale;
         $wcproduct['price_befor_sale'] = $befor_sale;
         $wcproduct['price_after_sale'] = $after_sale;
-        $sale_per = round(($befor_sale-$lowest_sale_price)*100/$befor_sale);
-        $wcproduct['sale_percentage'] = $sale_per;
+        $sale_per = ceil(($befor_sale-$lowest_sale_price)*100/$befor_sale);
+        $wcproduct['sale_percentage '] = $sale_per;
         $wcproduct['variation_detail'] = $var_data;
         if ( has_term( 'new-arrivals', 'product_tag', $product->get_id() ) ) {
             $wcproduct['is_new'] = true;
@@ -373,7 +366,6 @@ function wp_rest_filterproducts_endpoint_handler($request = null) {
                     
         $items[] = $wcproduct;
     }
-
     wp_reset_postdata();
 
     $args2 = $args; 
@@ -400,19 +392,15 @@ function wp_rest_filterproducts_endpoint_handler($request = null) {
         $remain_count = $per_page - $per_page_count;
         if($remain_count>0){
           $args2['posts_per_page'] = $remain_count;
-        } else {
-          $args2['posts_per_page'] = 0;
         }
       } elseif ($page>$q1_last_page) {
-        $last_page_amo=floor($q1_total_item/$q1_last_page);
-        $remain_count = $per_page-$last_page_amo;
+        $last_page_off=floor($q1_total_item/$q1_last_page);
         $page_gap = $page-$q1_last_page;
         if($page_gap==1){
-          $offset = $remain_count;
+          $offset = $last_page_off;
         } else {
-          $offset = ($page_gap-1)*$per_page+$remain_count;
+          $offset = ($page_gap-1)*$per_page+$last_page_off;
         }
-        // print_r($offset);
         $args2['offset'] = $offset; 
         $args2['posts_per_page'] = $per_page;
       }
@@ -615,18 +603,12 @@ function wp_rest_filterproducts_endpoint_handler($request = null) {
       'last_page' => $total_pages,
       'first_page' => 1,
     );
-    
-    $output['filters']['price_range'] = array(
-      'min_price' => $filter_price->min_price,
-      'max_price' => $filter_price->max_price,
-    );
-    
     $output['items'] = $items;
 
     return new WP_REST_Response($output, 200);
 }
 
-function get_price_range()
+/*function get_price_range()
 {
   $filter_price = get_filtered_price_custom();
   $output = array(
@@ -676,4 +658,4 @@ function get_filtered_price_custom($args=null) {
     $sql = apply_filters( 'woocommerce_price_filter_sql', $sql, $meta_query_sql, $tax_query_sql );
 
     return $wpdb->get_row( $sql ); // WPCS: unprepared SQL ok.
-  }
+  }*/
